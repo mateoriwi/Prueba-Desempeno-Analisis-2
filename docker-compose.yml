@@ -1,0 +1,125 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3-python3.11
+  env_file:
+    - .env
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_AIRFLOW_USER}:${POSTGRES_AIRFLOW_PASSWORD}@postgres-airflow:5432/${POSTGRES_AIRFLOW_DB}
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    _PIP_ADDITIONAL_REQUIREMENTS: "pandas==2.2.2 requests==2.32.3 psycopg2-binary==2.9.9 sqlalchemy==1.4.52 fastparquet pyarrow"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./data:/opt/airflow/data
+    - ./logs:/opt/airflow/logs
+  depends_on:
+    postgres-airflow:
+      condition: service_healthy
+    postgres-dwh:
+      condition: service_healthy
+
+services:
+  # Base de datos 1: Metadatos internos de Airflow
+  postgres-airflow:
+    image: postgres:15-alpine
+    container_name: datamart_postgres_airflow
+    environment:
+      POSTGRES_USER: ${POSTGRES_AIRFLOW_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_AIRFLOW_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_AIRFLOW_DB}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_AIRFLOW_USER}", "-d", "${POSTGRES_AIRFLOW_DB}"]
+      interval: 5s
+      retries: 5
+
+  # Base de datos 2: Data Warehouse analítico
+  postgres-dwh:
+    image: postgres:15-alpine
+    container_name: datamart_postgres_dwh
+    environment:
+      POSTGRES_USER: ${POSTGRES_DWH_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DWH_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DWH_DB}
+    ports:
+      - "${POSTGRES_DWH_PORT}:5432"
+    volumes:
+      - ./sql/init_dwh.sql:/docker-entrypoint-initdb.d/01_init_dwh.sql:ro
+      - dwh_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_DWH_USER}", "-d", "${POSTGRES_DWH_DB}"]
+      interval: 5s
+      retries: 5
+
+  # Microservicio FastAPI: Catálogo legado de productos
+  products-api:
+    build: ./api
+    container_name: datamart_products_api
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/products')"]
+      interval: 10s
+      retries: 5
+
+  # Inicializador automático: Crea DB, admin, connections y variables
+  airflow-init:
+    <<: *airflow-common
+    container_name: datamart_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "${AIRFLOW_ADMIN_USER}" \
+          --firstname "DataMart" \
+          --lastname "Admin" \
+          --role Admin \
+          --email "${AIRFLOW_ADMIN_EMAIL}" \
+          --password "${AIRFLOW_ADMIN_PASSWORD}" || true
+
+        # Configurar Conexiones automáticamente
+        airflow connections delete datamart_dwh_conn || true
+        airflow connections add datamart_dwh_conn \
+          --conn-type postgres \
+          --conn-host postgres-dwh \
+          --conn-schema "${POSTGRES_DWH_DB}" \
+          --conn-login "${POSTGRES_DWH_USER}" \
+          --conn-password "${POSTGRES_DWH_PASSWORD}" \
+          --conn-port 5432
+
+        airflow connections delete products_api_conn || true
+        airflow connections add products_api_conn \
+          --conn-type http \
+          --conn-host products-api \
+          --conn-port 8000
+
+        # Inicializar Variables de Airflow automáticamente
+        airflow variables set datamart_data_dir "${PIPELINE_DATA_DIR}"
+        airflow variables set datamart_batch_size "${PIPELINE_BATCH_SIZE}"
+        airflow variables set datamart_api_url "${PRODUCTS_API_BASE_URL}"
+        echo "¡Inicialización de Airflow completada con éxito!"
+
+  # Servidor Web de la interfaz gráfica de Airflow
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: datamart_airflow_webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # Planificador y ejecutor de tareas
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: datamart_airflow_scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  dwh_data:
