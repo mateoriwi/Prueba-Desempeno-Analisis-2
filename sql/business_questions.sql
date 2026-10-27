@@ -1,11 +1,11 @@
--- ==========================================================
--- Consultas SQL para Responder las 7 Preguntas de Negocio
--- Repositorio Analítico: datamart_dwh
--- ==========================================================
+-- =============================================================================
+-- DATA WAREHOUSE - DATAMART S.A.S.
+-- Consultas SQL de Validación para las 7 Preguntas de Negocio (Sección 7)
+-- =============================================================================
 
--- ----------------------------------------------------------
--- 1. Evolución mensual de las ventas netas (descontando devoluciones)
--- ----------------------------------------------------------
+\echo '============================================================================='
+\echo '1. Evolución mensual de las ventas netas (descontando devoluciones)'
+\echo '============================================================================='
 SELECT
     d.year_month,
     ROUND(SUM(s.gross_revenue), 2) AS total_gross_revenue,
@@ -19,9 +19,10 @@ JOIN dim_date d ON s.date_id = d.date_id
 GROUP BY d.year_month
 ORDER BY d.year_month;
 
--- ----------------------------------------------------------
--- 2. Categorías con mayor revenue bruto y mayor proporción de devoluciones
--- ----------------------------------------------------------
+\echo ''
+\echo '============================================================================='
+\echo '2. Categorías de producto: Revenue bruto y proporción de devoluciones'
+\echo '============================================================================='
 SELECT
     p.category,
     ROUND(SUM(s.gross_revenue), 2) AS gross_revenue,
@@ -35,10 +36,10 @@ JOIN dim_product p ON s.stock_code = p.stock_code
 GROUP BY p.category
 ORDER BY gross_revenue DESC;
 
--- ----------------------------------------------------------
--- 3. Top 10 productos con mayor revenue neto y Top 10 con mayor tasa de devolución
--- ----------------------------------------------------------
--- 3A: Top 10 productos con mayor revenue neto
+\echo ''
+\echo '============================================================================='
+\echo '3A. Top 10 productos con mayor revenue neto'
+\echo '============================================================================='
 SELECT
     p.stock_code,
     p.canonical_description,
@@ -51,7 +52,10 @@ GROUP BY p.stock_code, p.canonical_description, p.category
 ORDER BY net_revenue DESC
 LIMIT 10;
 
--- 3B: Top 10 productos con mayor tasa de devolución (mínimo 100 unidades vendidas)
+\echo ''
+\echo '============================================================================='
+\echo '3B. Top 10 productos con mayor tasa de devolución (mínimo 100 unidades vendidas)'
+\echo '============================================================================='
 SELECT
     p.stock_code,
     p.canonical_description,
@@ -67,9 +71,10 @@ HAVING SUM(s.sales_quantity) >= 100
 ORDER BY return_rate_revenue_pct DESC
 LIMIT 10;
 
--- ----------------------------------------------------------
--- 4. Países con mayor concentración de transacciones y variación del ticket promedio
--- ----------------------------------------------------------
+\echo ''
+\echo '============================================================================='
+\echo '4. Países con mayor concentración de transacciones y ticket promedio por orden'
+\echo '============================================================================='
 WITH invoice_totals AS (
     SELECT
         country,
@@ -88,9 +93,10 @@ FROM invoice_totals
 GROUP BY country
 ORDER BY total_orders DESC;
 
--- ----------------------------------------------------------
--- 5. Diferencia de comportamiento entre clientes identificados y sin CustomerID
--- ----------------------------------------------------------
+\echo ''
+\echo '============================================================================='
+\echo '5. Comparación de comportamiento: Clientes Identificados vs Anónimos (GUEST)'
+\echo '============================================================================='
 WITH order_metrics AS (
     SELECT
         c.is_identified,
@@ -112,16 +118,19 @@ SELECT
 FROM order_metrics
 GROUP BY is_identified;
 
--- ----------------------------------------------------------
--- 6. Productos sin descripción consistente y total de códigos únicos
--- ----------------------------------------------------------
--- 6A: Resumen de códigos únicos y cuántos presentan inconsistencias
+\echo ''
+\echo '============================================================================='
+\echo '6A. Resumen de códigos únicos y productos con descripciones inconsistentes'
+\echo '============================================================================='
 SELECT
     COUNT(*) AS total_unique_product_codes,
     SUM(CASE WHEN raw_description_variants_count > 1 THEN 1 ELSE 0 END) AS products_with_inconsistent_descriptions
 FROM dim_product;
 
--- 6B: Top 20 productos con más variaciones de descripción
+\echo ''
+\echo '============================================================================='
+\echo '6B. Top 20 productos con mayor número de variaciones de descripción cruda'
+\echo '============================================================================='
 SELECT
     stock_code,
     canonical_description,
@@ -131,9 +140,10 @@ WHERE raw_description_variants_count > 1
 ORDER BY raw_description_variants_count DESC
 LIMIT 20;
 
--- ----------------------------------------------------------
--- 7. Consulta de apoyo para recomendación cuantitativa al equipo de producto
--- ----------------------------------------------------------
+\echo ''
+\echo '============================================================================='
+\echo '7. Auditoría de transacciones atípicas y devoluciones anómalas (Soporte recomendación)'
+\echo '============================================================================='
 SELECT
     f.stock_code,
     p.canonical_description,

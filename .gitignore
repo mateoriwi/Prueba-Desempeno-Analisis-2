@@ -1,7 +1,7 @@
-pasos.md
 .env
 logs/
 __pycache__/
 *.parquet
-btcr/
-Instrucciones.md
+data/clean/*
+!data/clean/.gitkeep
+*.ps1

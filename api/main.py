@@ -11,7 +11,7 @@ def classify_product(code: str, description: str = "") -> dict:
     clean_code = code.strip().upper()
     desc_upper = (description or f"PRODUCT {clean_code}").strip().upper()
     
-    # Reglas heurísticas por palabras clave hacia las 5 categorías oficiales de DataMart
+    
     if any(k in desc_upper for k in ["LIGHT", "LAMP", "CLOCK", "ALARM", "RADIO", "USB", "TORCH", "FAN"]):
         category = "Electrónica"
     elif any(k in desc_upper for k in ["BAG", "SHIRT", "SOCK", "HAT", "APRON", "PURSE", "SCARF", "UMBRELLA"]):
@@ -29,12 +29,21 @@ def classify_product(code: str, description: str = "") -> dict:
         "normalized_name": desc_upper,
         "category": category,
         "supplier_country": COUNTRIES[h % len(COUNTRIES)],
-        "is_active": (h % 10) != 0  # 90% activos, 10% descontinuados
+        "is_active": (h % 10) != 0  
     }
 
-# Catálogo semilla en memoria para el endpoint paginado
+
 SEED_CODES = ["85123A", "71053", "84406B", "84029G", "84029E", "22752", "21730", "22633", "22632", "84879"]
 CATALOG = {c: classify_product(c) for c in SEED_CODES}
+
+@app.get("/")
+@app.get("/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "DataMart Legacy Product Catalog API",
+        "total_seed_products": len(CATALOG)
+    }
 
 @app.get("/products")
 def list_products(page: int = Query(1, ge=1), size: int = Query(50, ge=1, le=500)):

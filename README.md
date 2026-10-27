@@ -27,7 +27,7 @@ Solución de ingeniería de datos contenerizada de extremo a extremo (*Zero-Touc
                          │                                                        │
 ┌──────────────────┐     │   ┌────────────────────┐    ┌──────────────────────┐   │
 │ Fuentes de Datos │     │   │  postgres-airflow  │    │     postgres-dwh     │   │
-│ - data.csv       │────►│   │  (Metadatos :5432) │    │  (DWH Analítico :5433│   │
+│ - data.csv       │────►│   │  (Metadatos :5432) │    │ (DWH Analítico :5433)│   │
 │ - online_retail  │     │   └─────────▲──────────┘    └──────────▲───────────┘   │
 └──────────────────┘     │             │                          │               │
                          │   ┌─────────┴──────────┐               │               │
@@ -61,14 +61,26 @@ Solución de ingeniería de datos contenerizada de extremo a extremo (*Zero-Touc
 │   ├── main.py
 │   └── requirements.txt
 ├── dags/                        # Definición de tuberías en Airflow
-│   └── datamart_etl_dag.py      # DAG idempotente con extracción, limpieza y carga
-├── data/                        # Datasets transaccionales (volumen compartido)
-│   ├── data.csv                 # Fuente 1: Transacciones diarias
-│   └── Sales Transaction v.4a.csv # Fuente 2: Historial extendido
+│   ├── 01_extract_dag.py        # Fase 1: Extracción y staging intermedio
+│   ├── 02_transform_dag.py      # Fase 2: Limpieza, API y exportación a data/clean/
+│   ├── 03_load_dag.py           # Fase 3: Carga idempotente en PostgreSQL DWH
+│   └── datamart_etl_dag.py      # Pipeline maestro unificado
+├── data/                        # Volumen compartido y Data Lake local
+│   ├── raw/                     # Capa bronce: Datasets transaccionales originales
+│   │   ├── data.csv             # Fuente 1: Transacciones diarias
+│   │   └── Sales Transaction v.4a.csv # Fuente 2: Historial extendido
+│   └── clean/                   # Capa plata: Datos normalizados generados por Airflow
+│       ├── transacciones_limpias.csv
+│       ├── productos_catalogo_limpio.csv
+│       └── registros_rechazados.csv
 └── sql/
     ├── init_dwh.sql             # Script DDL montado en /docker-entrypoint-initdb.d/
-    └── business_questions.sql   # Consultas SQL para responder las 7 preguntas de negocio
+    ├── business_questions.sql   # Script consolidado para las 7 preguntas de negocio
+    └── punto1.sql - punto7.sql  # Consultas SQL individuales por pregunta
 ```
+
+> **📌 Nota de Ingeniería sobre `data/clean/`:**  
+> Siguiendo las mejores prácticas de Data Engineering, los archivos procesados dentro de `data/clean/` están excluidos del control de versiones mediante `.gitignore` (manteniendo únicamente su estructura de carpetas vía `.gitkeep`). Esto evita inflar el repositorio Git con datos derivados y garantiza que cada ejecución del pipeline o del DAG de transformación (`02_transform_dag.py`) genere los artefactos limpios de forma reproducible y desacoplada del código fuente.
 
 ---
 
@@ -88,9 +100,9 @@ cp .env.example .env
 *(En Windows PowerShell: `Copy-Item .env.example .env`)*
 
 ### 3. Verificar datasets
-Asegúrate de que los archivos transaccionales se encuentren en la carpeta `./data/`:
-- `./data/data.csv`
-- `./data/Sales Transaction v.4a.csv` (u `online_retail_II.csv`)
+Asegúrate de que los archivos transaccionales se encuentren en la carpeta `./data/raw/` (o `./data/`):
+- `./data/raw/data.csv`
+- `./data/raw/online_retail_II.csv` (o `Sales Transaction v.4a.csv`)
 
 ### 4. Levantar la plataforma con un solo comando
 ```bash
@@ -163,7 +175,9 @@ La idempotencia es total frente a múltiples ejecuciones:
 
 ## 📊 Diagrama Entidad-Relación (dbdiagram.io)
 
-Código listo para visualizar en [dbdiagram.io](https://dbdiagram.io/d):
+El diagrama visual exportado se encuentra disponible en [`modelo_entidad_relacion.pdf`](./modelo_entidad_relacion.pdf).
+
+Código DBML listo para editar o visualizar en [dbdiagram.io](https://dbdiagram.io/d):
 
 ```sql
 Table dim_date {
